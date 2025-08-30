@@ -1,0 +1,60 @@
+name: Clock Automation
+
+on:
+  schedule:
+    - cron: "0 9 * * 1-5" # 9 AM every weekday (Clock In)
+    - cron: "0 17 * * 1-5" # 5 PM every weekday (Clock Out)
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  clock-operation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+
+          # Install Chrome
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+          # Install ChromeDriver
+          CHROME_VERSION=$(google-chrome --version | awk '{print $3}')
+          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
+          wget -O chromedriver.zip "https://chromedriver.storage.googleapis.com/$(curl -s https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_MAJOR_VERSION})/chromedriver_linux64.zip"
+          unzip chromedriver.zip
+          chmod +x chromedriver
+          sudo mv chromedriver /usr/local/bin/
+
+      - name: Install Python dependencies
+        run: |
+          cd src
+          pip install -r requirements.txt
+
+      - name: Run clock automation
+        env:
+          CLOCK_USERNAME: ${{ secrets.CLOCK_USERNAME }}
+          CLOCK_PASSWORD: ${{ secrets.CLOCK_PASSWORD }}
+        run: |
+          cd src
+          # Determine operation based on schedule
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            OPERATION="in"  # Default for manual runs
+          elif [ "${{ github.schedule }}" = "0 9 * * 1-5" ]; then
+            OPERATION="in"
+          else
+            OPERATION="out"
+          fi
+          python clock_automation.py $OPERATION
